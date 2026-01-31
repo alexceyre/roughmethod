@@ -3,30 +3,54 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>CRT TV</title>
+    <title>CRT TV – Three.js Embed</title>
     <style>
-      html, body { margin: 0; height: 100%; overflow: hidden; background: #0b0b0f; }
-      #hud {
-        position: fixed; left: 12px; top: 12px; z-index: 10;
-        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-        font-size: 12px; color: #fff; opacity: 0.9;
-        background: rgba(0,0,0,0.45); padding: 10px 12px; border-radius: 10px;
-        max-width: 520px; line-height: 1.35;
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        overflow: hidden;
+        background: #0b0b0f;
       }
-      canvas { display: block; }
+      #hud {
+        position: fixed;
+        left: 12px;
+        top: 12px;
+        z-index: 10;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+          "Liberation Mono", "Courier New", monospace;
+        font-size: 12px;
+        color: #fff;
+        opacity: 0.9;
+        background: rgba(0, 0, 0, 0.45);
+        padding: 10px 12px;
+        border-radius: 10px;
+        max-width: 520px;
+        line-height: 1.35;
+        white-space: pre-line;
+      }
+      canvas {
+        display: block;
+      }
     </style>
   </head>
+
   <body>
     <div id="hud">Loading…</div>
 
     <script type="module">
       import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js";
       import { GLTFLoader } from "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/loaders/GLTFLoader.js";
+      import { DRACOLoader } from "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/loaders/DRACOLoader.js";
 
+      // === Config ===
+      const MODEL_URL = "./retro_crt_tv.glb"; // same folder as index.html
       const hud = document.getElementById("hud");
 
+      // === Three.js basics ===
       let scene, camera, renderer, crt;
-      let mouseX = 0, mouseY = 0;
+      let mouseX = 0,
+        mouseY = 0;
 
       init();
       animate();
@@ -34,25 +58,43 @@
       function init() {
         scene = new THREE.Scene();
 
-        camera = new THREE.PerspectiveCamera(35, window.innerWidth / window.innerHeight, 0.1, 100);
+        camera = new THREE.PerspectiveCamera(
+          35,
+          window.innerWidth / window.innerHeight,
+          0.1,
+          100
+        );
         camera.position.set(0, 0, 3.2);
 
-        renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer = new THREE.WebGLRenderer({
+          antialias: true,
+          alpha: true,
+          powerPreference: "high-performance",
+        });
         renderer.setSize(window.innerWidth, window.innerHeight);
         renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-        renderer.setClearColor(0x000000, 0); // transparent canvas over dark page bg
+        renderer.setClearColor(0x000000, 0); // transparent canvas
         document.body.appendChild(renderer.domElement);
 
-        // Lights
+        // Lights (simple + reliable)
         scene.add(new THREE.AmbientLight(0xffffff, 1.15));
         const dir = new THREE.DirectionalLight(0xffffff, 1.6);
         dir.position.set(5, 5, 5);
         scene.add(dir);
 
-        // Load CRT model from SAME FOLDER as index.html
+        // === GLB Loader + Draco support ===
         const loader = new GLTFLoader();
+
+        // Draco decoder (fixes "stuck loading" for Draco-compressed GLBs)
+        const dracoLoader = new DRACOLoader();
+        dracoLoader.setDecoderPath(
+          "https://www.gstatic.com/draco/v1/decoders/"
+        );
+        loader.setDRACOLoader(dracoLoader);
+
+        // Load model
         loader.load(
-          "./retro_crt_tv.glb",
+          MODEL_URL,
           (gltf) => {
             crt = gltf.scene;
 
@@ -66,10 +108,13 @@
             // Center model at origin
             crt.position.sub(center);
 
-            // Scale to a sane size (fit largest dimension ~1.6 units)
+            // Scale to fit (largest dimension ~1.6 units)
             const maxDim = Math.max(size.x, size.y, size.z) || 1;
             const scale = 1.6 / maxDim;
             crt.scale.setScalar(scale);
+
+            // Optional: slight default angle so it feels “present”
+            crt.rotation.y = 0.12;
 
             scene.add(crt);
             hud.textContent = "Loaded ✓  (move mouse)";
@@ -78,13 +123,53 @@
             if (progress.total) {
               const pct = Math.round((progress.loaded / progress.total) * 100);
               hud.textContent = `Loading… ${pct}%`;
+            } else {
+              // Sometimes total is 0/undefined; still show activity
+              hud.textContent = `Loading… ${Math.round(
+                progress.loaded / 1024
+              )} KB`;
             }
           },
           (err) => {
             console.error(err);
             hud.textContent =
-              "ERROR: Couldn’t load ./retro_crt_tv.glb\n" +
-              "Check the file name/path + GitHub Pages is serving it.";
+              "ERROR: Couldn’t load the model.\n" +
+              "1) Confirm retro_crt_tv.glb exists in repo root.\n" +
+              "2) Confirm this URL works:\n" +
+              "   " +
+              location.origin +
+              location.pathname.replace(/\/$/, "") +
+              "/retro_crt_tv.glb\n" +
+              "3) If it’s Draco-compressed, this file already includes a Draco decoder.";
           }
         );
 
+        // Mouse move (normalized -1..1)
+        window.addEventListener("mousemove", (e) => {
+          mouseX = (e.clientX / window.innerWidth - 0.5) * 2;
+          mouseY = (e.clientY / window.innerHeight - 0.5) * 2;
+        });
+
+        window.addEventListener("resize", onResize);
+      }
+
+      function onResize() {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      }
+
+      function animate() {
+        requestAnimationFrame(animate);
+
+        if (crt) {
+          // Smooth, weighted motion
+          crt.rotation.y += (mouseX * 0.4 - crt.rotation.y) * 0.08;
+          crt.rotation.x += (mouseY * 0.2 - crt.rotation.x) * 0.08;
+        }
+
+        renderer.render(scene, camera);
+      }
+    </script>
+  </body>
+</html>
